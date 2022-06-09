@@ -374,7 +374,7 @@ Pkg.status()
 md"""
 And add the package(s) we will use
 """
-using Plots, CUDA, Benchmarktools
+using Plots, CUDA, BenchmarkTools
 
 md"""
 ## Solving the 2D heat diffusion
@@ -392,7 +392,6 @@ function diffusion2D()
     nx, ny = 32*2, 32*2                                    # Number of grid points in dimensions x and y
     nt     = 100                                           # Number of time steps
     dx, dy = lx/(nx-1), ly/(ny-1)                          # Space step in x and y-dimension
-    nvis   = 10
     ## Array initializations
     T      = zeros(Float64,nx  ,ny  )                      # Temperature
     Ci     = zeros(Float64,nx  ,ny  )                      # 1/Heat capacity
@@ -408,7 +407,7 @@ function diffusion2D()
         qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
         qTy .= .-λ .* diff(T[2:end-1,:],dims=2)./dy
         T[2:end-1,2:end-1] .= T[2:end-1,2:end-1] .+ dt.*Ci[2:end-1,2:end-1].*(.-diff(qTx,dims=1)./dx .-diff(qTy,dims=2)./dy)
-        if it%nvis==0 heatmap(Array(T)',title=it; opts...) end      # Visualization
+        heatmap(Array(T)',title="it=$it"; opts...)        # Visualization
     end
 end
 #-
@@ -431,7 +430,6 @@ function diffusion2D()
     nx, ny = 32*2, 32*2                                    # Number of grid points in dimensions x and y
     nt     = 100                                           # Number of time steps
     dx, dy = lx/(nx-1), ly/(ny-1)                          # Space step in x and y-dimension
-    nvis   = 10
     ## Array initializations
     T      = CUDA.zeros(Float64,nx  ,ny  )                 # Temperature
     Ci     = CUDA.zeros(Float64,nx  ,ny  )                 # 1/Heat capacity
@@ -447,7 +445,7 @@ function diffusion2D()
         qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
         qTy .= .-λ .* diff(T[2:end-1,:],dims=2)./dy
         T[2:end-1,2:end-1] .= T[2:end-1,2:end-1] .+ dt.*Ci[2:end-1,2:end-1].*(.-diff(qTx,dims=1)./dx .-diff(qTy,dims=2)./dy)
-        if it%nvis==0 heatmap(Array(T)',title=it; opts...) end      # Visualization
+        heatmap(Array(T)',title="it=$it"; opts...)        # Visualization
     end
 end
 #-
