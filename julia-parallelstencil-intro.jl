@@ -350,20 +350,216 @@ md"""
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
 ## Let's get started with a concise demo using [ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl)
+
+And solve the 2D heat diffusion.
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-We will now continue in the notebook you can freely fetch on GitHub at [https://github.com/luraess/julia-day-2022](https://github.com/luraess/julia-day-2022)
+👉 We will now continue in the notebook you can freely access on GitHub at [https://github.com/luraess/julia-day-2022](https://github.com/luraess/julia-day-2022)
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
+## Setting up the environment
+
 In the notebook, activate the environment:
 """
 using Pkg
 Pkg.activate(@__DIR__)
 Pkg.instantiate()
+Pkg.status()
+
+md"""
+And add the package(s) we will use
+"""
+using Plots, CUDA, Benchmarktools
+
+md"""
+## Solving the 2D heat diffusion
+
+$$ c \frac{∂T}{∂t} = ∇⋅λ ∇T $$
+
+Let's implement an explicit diffusion solver using finite-differences and array programming together with broadcasting in "plain" Julia:
+"""
+function diffusion2D()
+    ## Physics
+    λ      = 1.0                                           # Thermal conductivity
+    c0     = 1.0                                           # Heat capacity
+    lx, ly = 10.0, 10.0                                    # Length of computational domain in dimension x and y
+    ## Numerics
+    nx, ny = 32*2, 32*2                                    # Number of grid points in dimensions x and y
+    nt     = 100                                           # Number of time steps
+    dx, dy = lx/(nx-1), ly/(ny-1)                          # Space step in x and y-dimension
+    nvis   = 10
+    ## Array initializations
+    T      = zeros(Float64,nx  ,ny  )                      # Temperature
+    Ci     = zeros(Float64,nx  ,ny  )                      # 1/Heat capacity
+    qTx    = zeros(Float64,nx-1,ny-2)                      # Heat flux in x-dim
+    qTy    = zeros(Float64,nx-2,ny-1)                      # Heat flux in y-dim
+    ## Initial conditions
+    Ci    .= 1.0/c0                                        # 1/Heat capacity (could vary in space)
+    T     .= [exp(-(((ix-1)*dx-lx/2)/2)^2-(((iy-1)*dy-ly/2)/2)^2) for ix=1:size(T,1), iy=1:size(T,2)] # Initial Gaussian Temp
+    ## Time loop
+    dt     = min(dx^2,dy^2)/λ/maximum(Ci)/4.1              # Time step for 2D Heat diffusion
+    opts   = (aspect_ratio=1,xlims=(1,nx),ylims=(1,ny),clims=(0.0,1.0),c=:turbo,xlabel="Lx",ylabel="Ly") # plotting options
+    @gif for it = 1:nt
+        qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
+        qTy .= .-λ .* diff(T[2:end-1,:],dims=2)./dy
+        T[2:end-1,2:end-1] .= T[2:end-1,2:end-1] .+ dt.*Ci[2:end-1,2:end-1].*(.-diff(qTx,dims=1)./dx .-diff(qTy,dims=2)./dy)
+        if it%nvis==0 heatmap(Array(T)',title=it; opts...) end      # Visualization
+    end
+end
+#-
+diffusion2D()
+
+md"""
+The above example runs on CPU. What if we want to execute it on the GPU? In Julia, this is pretty simple as we can use the [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) package 
+"""
+using CUDA
+
+md"""
+and add the `CUDA` key to the array initialisation as following:
+"""
+function diffusion2D()
+    ## Physics
+    λ      = 1.0                                           # Thermal conductivity
+    c0     = 1.0                                           # Heat capacity
+    lx, ly = 10.0, 10.0                                    # Length of computational domain in dimension x and y
+    ## Numerics
+    nx, ny = 32*2, 32*2                                    # Number of grid points in dimensions x and y
+    nt     = 100                                           # Number of time steps
+    dx, dy = lx/(nx-1), ly/(ny-1)                          # Space step in x and y-dimension
+    nvis   = 10
+    ## Array initializations
+    T      = CUDA.zeros(Float64,nx  ,ny  )                 # Temperature
+    Ci     = CUDA.zeros(Float64,nx  ,ny  )                 # 1/Heat capacity
+    qTx    = CUDA.zeros(Float64,nx-1,ny-2)                 # Heat flux in x-dim
+    qTy    = CUDA.zeros(Float64,nx-2,ny-1)                 # Heat flux in y-dim
+    ## Initial conditions
+    Ci    .= 1.0/c0                                        # 1/Heat capacity (could vary in space)
+    T     .= CuArray([exp(-(((ix-1)*dx-lx/2)/2)^2-(((iy-1)*dy-ly/2)/2)^2) for ix=1:size(T,1), iy=1:size(T,2)]) # Initial Gaussian Temp
+    ## Time loop
+    dt     = min(dx^2,dy^2)/λ/maximum(Ci)/4.1              # Time step for 2D Heat diffusion
+    opts   = (aspect_ratio=1,xlims=(1,nx),ylims=(1,ny),clims=(0.0,1.0),c=:turbo,xlabel="Lx",ylabel="Ly") # plotting options
+    @gif for it = 1:nt
+        qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
+        qTy .= .-λ .* diff(T[2:end-1,:],dims=2)./dy
+        T[2:end-1,2:end-1] .= T[2:end-1,2:end-1] .+ dt.*Ci[2:end-1,2:end-1].*(.-diff(qTx,dims=1)./dx .-diff(qTy,dims=2)./dy)
+        if it%nvis==0 heatmap(Array(T)',title=it; opts...) end      # Visualization
+    end
+end
+#-
+diffusion2D()
+
+md"""
+Nice, so it runs on the GPU now. But how much faster - what did we gain?
+
+### CPU array programming performance
+
+Let's determine the effective memory throughput $T_\mathrm{eff}$. For this, we can isolate the physics computation into a function that we will use for benchmarking
+"""
+function update_temperature!(T, qTx, qTy, Ci, λ, dt, dx, dy)
+    @inbounds qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
+    @inbounds qTy .= .-λ .* diff(T[2:end-1,:],dims=2)./dy
+    @inbounds T[2:end-1,2:end-1] .= T[2:end-1,2:end-1] .+ dt.*Ci[2:end-1,2:end-1].*(.-diff(qTx,dims=1)./dx .-diff(qTy,dims=2)./dy)
+    return
+end
+
+md"""
+Moreover, for benchmarking activities, we will require the following arrays and scalars and make sure to use sufficiently large arrays in order to saturate the memory bandwidth:
+"""
+nx = ny = 512#*32
+T   = rand(Float64,nx  ,ny  )
+Ci  = rand(Float64,nx  ,ny  )
+qTx = rand(Float64,nx-1,ny-2)
+qTy = rand(Float64,nx-2,ny-1)
+λ = dx = dy = dt = rand();
+
+md"""
+And use `@belapsed` macro from [BenchmarTools](https://github.com/JuliaCI/BenchmarkTools.jl) to sample our perf:
+"""
+t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
+T_eff_cpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
+println("T_eff = $(T_eff_cpu_bcast) GiB/s")
+
+md"""
+### GPU array programming performance
+
+Let's repeat the experiment using the GPU
+"""
+nx = ny = 512#*32
+T   = CUDA.rand(Float64,nx  ,ny  )
+Ci  = CUDA.rand(Float64,nx  ,ny  )
+qTx = CUDA.rand(Float64,nx-1,ny-2)
+qTy = CUDA.rand(Float64,nx-2,ny-1)
+λ = dx = dy = dt = rand();
+
+md"""
+And sample again our perf on the GPU this time:
+"""
+t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
+T_eff_gpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
+println("T_eff = $(T_eff_gpu_bcast) GiB/s")
+
+md"""
+Some blabla about perf.
+
+## Using ParallelStencil
+
+Finite difference module and `CUDA` "backend".
+"""
+using ParallelStencil
+using ParallelStencil.FiniteDifferences2D
+@init_parallel_stencil(Threads, Float64, 2)
+## @init_parallel_stencil(CUDA, Float64, 2)
+nx = ny = 512#*32
+T   = @rand(nx  ,ny  )
+Ci  = @rand(nx  ,ny  )
+qTx = @rand(nx-1,ny-2)
+qTy = @rand(nx-2,ny-1)
+λ = dx = dy = dt = rand();
+
+md"""
+Using math-close notations from the FD module:
+"""
+@parallel function update_temperature_ps!(T, qTx, qTy, Ci, λ, dt, dx, dy)
+    @all(qTx) = -λ * @d_xi(T)/dx
+    @all(qTy) = -λ * @d_yi(T)/dy
+    @inn(T)   = @inn(T) + dt*@inn(Ci)*(-@d_xa(qTx)/dx -@d_ya(qTy)/dy)
+    return
+end
+
+md"""
+And sample again our perf on the GPU using ParallelStencil this time:
+"""
+t_it = @belapsed begin @parallel update_temperature_ps!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
+T_eff_ps = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
+println("T_eff = $(T_eff_ps) GiB/s")
+
+md"""
+It's better, but we can do more in order to approach the peak memory bandwidth of the GPU
+Removing the convenience arrays `qTx`, `qTy`:
+"""
+T2 = copy(T)
+macro qTx(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix,$iy+1])/dx )) end
+macro qTy(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
+@parallel_indices (ix,iy) function update_temperature_psind!(T2, T, Ci, λ, dt, dx, dy)
+    nx, ny = size(T2)
+    if (ix>1 && ix<nx && iy>1 && iy<ny)
+        @inbounds T2[ix+1,iy+1] = T[ix+1,iy+1] + dt*Ci[ix,iy]*( -(@qTx(ix+1,iy) - @qTx(ix,iy))/dx -(@qTy(ix,iy+1) - @qTy(ix,iy))/dy )
+    end
+    return
+end
+
+md"""
+And sample again our perf on the GPU using `parallel_indices` this time:
+"""
+t_it = @belapsed begin @parallel update_temperature_psind!($T2, $T, $Ci, $λ, $dt, $dx, $dy); end
+T_eff_psind = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
+println("T_eff = $(T_eff_psind) GiB/s")
+
+
 
 
