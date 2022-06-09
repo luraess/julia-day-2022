@@ -14,32 +14,43 @@ _ETH Zurich_
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
 
-_supported by_
+_dev team_
 
-Sam Omlin, Ivan Utkin, Mauro Werder
-
+_Sam Omlin, Ivan Utkin, Mauro Werder_
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-## Why to solve PDEs on xPUs ... or GPUs
+## The nice to have features
 
-![gpu](./figures/gpu.png)
-
+Wouldn't it be nice to have single code that:
+- runs both on CPUs and GPUs (xPUs)?
+- one can use for prototyping and production?
+- runs at optimal performance?
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-### A brief intro about GPU computing:
-- Why we do it
-- Why it is cool (in Julia)
+Hold on 🙂 ...
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-### Why we do it
+## Why to bother with GPU computing
+
+A brief intro about GPU computing:
+- Why we do GPU computing
+- Why the Julia choice
+
+![gpu](./figures/gpu.png)
+"""
+
+#src #########################################################################
+#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
+md"""
+### Why we do GPU computing
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
@@ -62,25 +73,6 @@ Physical processes that describe those systems are **complex** and often **nonli
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-Solving PDEs is computationally demanding
-- ODEs - scalar equations
-
-$$ \frac{∂C}{∂t} = -\frac{(C-C_{eq})}{ξ} $$
-
-but...
-"""
-
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
-md"""
-- PDEs - involve vectors (and tensors)  👉 local gradients & neighbours
-
-$$ \frac{∂C}{∂t} = D~ \left(\frac{∂^2C}{∂x^2} + \frac{∂^2C}{∂y^2} \right) $$
-
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
-md"""
 Computational costs increase
 - with complexity (e.g. multi-physics, couplings)
 - with dimensions (3D tensors...)
@@ -91,7 +83,6 @@ Computational costs increase
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
 ![Stokes2D_vep](./figures/Stokes2D_vep.gif)
-
 """
 
 #src #########################################################################
@@ -140,7 +131,7 @@ Current GPUs (and CPUs) can do many more computations in a given amount of time 
 md"""
 Quantify the imbalance:
 
-$$ \frac{\mathrm{computation\;peak\;performance\;[TFLOP/s]}}{\mathrm{memory\;access\;peak\;performance\;[TB/s]}} × \mathrm{size\;of\;a\;number\;[Bytes]} $$
+$$ \frac{\mathrm{computation\;peak\;perf.\;[TFLOP/s]}}{\mathrm{memory\;access\;peak\;perf.\;[TB/s]}} × \mathrm{size\;of\;a\;number\;[Bytes]} $$
 
 """
 
@@ -165,7 +156,7 @@ _(here computed with double precision values)_
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-**Meaning:** we can do 50 (GPU) and 66 (CPU) floating point operations per number accessed from main memory. Floating point operations are "for free" when we work in memory-bounded regimes
+**Meaning:** we can do about 50 floating point operations per number accessed from main memory. Floating point operations are "for free" when we work in memory-bounded regimes.
 
 👉 Requires to re-think the numerical implementation and solution strategies
 """
@@ -173,84 +164,53 @@ md"""
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-### On the scientific application side
+Unfortunately, the cost of evaluating a first derivative $∂A / ∂x$ using finite-differences
 
-- Most algorithms require only a few operations or flops ...
-- ... compared to the amount of numbers or bytes accessed from main memory.
+`q[ix] = -D*(A[ix+1]-A[ix])/dx`
+
+consists of:
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-First derivative example $∂A / ∂x$:
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
-md"""
-If we "naively" compare the "cost" of an isolated evaluation of a finite-difference first derivative, e.g., computing a flux $q$:
-
-$$q = -D~\frac{∂A}{∂x}~,$$
-
-which in the discrete form reads `q[ix] = -D*(A[ix+1]-A[ix])/dx`.
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
-md"""
-The cost of evaluating `q[ix] = -D*(A[ix+1]-A[ix])/dx`:
-
 1 reads + 1 write => $2 × 8$ = **16 Bytes transferred**
 
 1 (fused) addition and division => **1 floating point operations**
-"""
 
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
-md"""
-assuming:
-- $D$, $∂x$ are scalars
-- $q$ and $A$ are arrays of `Float64` (read from main memory)
+> assuming $D$, $∂x$ are scalars, $q$ and $A$ are arrays of `Float64` (read from main memory)
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-GPUs and CPUs perform 50 - 60 FLOP pro number accessed from main memory
+## How to evaluate performance
 
-First derivative evaluation requires to transfer 2 numbers per FLOP
+_The FLOP/s metric is no longer the most adequate for reporting the application performance of many modern applications on modern hardware._
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
-md"""
-The FLOP/s metric is no longer the most adequate for reporting the application performance of many modern applications on modern hardware.
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
 ### Effective memory throughput metric $T_\mathrm{eff}$
 
-Need for a memory throughput-based performance evaluation metric: $T_\mathrm{eff}$ [GB/s]
+Need for a memory throughput-based performance evaluation metric: $T_\mathrm{eff}$ [GiB/s]
 
-➡ Evaluate the performance of iterative stencil-based solvers.
+➡  Evaluate the performance of iterative stencil-based solvers.
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-The effective memory access $A_\mathrm{eff}$ [GB]
-
-Sum of:
+The effective memory access $A_\mathrm{eff}$ [GiB], is the sum of:
 - twice the memory footprint of the unknown fields, $D_\mathrm{u}$, (fields that depend on their own history and that need to be updated every iteration)
 - known fields, $D_\mathrm{k}$, that do not change every iteration. 
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-The effective memory access divided by the execution time per iteration, $t_\mathrm{it}$ [sec], defines the effective memory throughput, $T_\mathrm{eff}$ [GB/s]:
+The effective memory access divided by the execution time per iteration, $t_\mathrm{it}$ [sec], defines the effective memory throughput, $T_\mathrm{eff}$ [GiB/s]:
 
-$$ A_\mathrm{eff} = 2~D_\mathrm{u} + D_\mathrm{k} $$
+$$ A_\mathrm{eff} = 2~D_\mathrm{u} + D_\mathrm{k}, \;\;\; T_\mathrm{eff} = \frac{A_\mathrm{eff}}{t_\mathrm{it}} $$
 
-$$ T_\mathrm{eff} = \frac{A_\mathrm{eff}}{t_\mathrm{it}} $$
 """
 
 #src #########################################################################
@@ -262,53 +222,29 @@ Defining the $T_\mathrm{eff}$ metric, we assume that:
 1. we evaluate an iterative stencil-based solver,
 2. the problem size is much larger than the cache sizes and
 3. the usage of time blocking is not feasible or advantageous (reasonable for real-world applications).
-"""
 
-#nb # > 💡 note: Fields within the effective memory access that do not depend on their own history; such fields can be re-computed on the fly or stored on-chip.
+> 💡 note: All "convenience" fields (that do not depend on their own history) should not be stored and can be re-computed on the fly or stored on-chip.
+"""
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-### Why it is cool
+### Why the Julia choice
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-![julia-gpu](./figures/julia-gpu.png)
-
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
-md"""
-#### GPU are cool
-Price vs Performance
-- Close to **1TB/s** memory throughput (here on nonlinear diffusion SIA)
+Julia + GPUs  ➡  close to **1 TB/s** memory throughput
 
 ![perf_gpu](./figures/perf_gpu.png)
 
-_And one can get there_
-
+**And one can get there** 🚀
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-Availability (less fight for resources)
-- Still not many applications run on GPUs
-
-Workstation turns into a personal Supercomputers
-- GPU vs CPUs peak memory bandwidth: theoretical 10x (practically maybe more)
-
-![titan_node](./figures/titan_node.jpg)
-
-"""
-
-#src #########################################################################
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
-md"""
-#### Julia is cool
-Solution to the "two-language problem"
+#### Solution to the "two-language problem"
 
 ![two_lang](./figures/two_lang.png)
 
@@ -339,24 +275,41 @@ too good to be true?
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
 ![ParallelStencil](./figures/parallelstencil.png)
-"""
 
-#nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
-md"""
+
 [https://github.com/omlins/ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl)
 """
 
 #src #########################################################################
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
 md"""
-## Let's get started with a concise demo using [ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl)
-
-And solve the 2D heat diffusion.
+## Enough propaganda
+Let's check out [ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl)
 """
 
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
-👉 We will now continue in the notebook you can freely access on GitHub at [https://github.com/luraess/julia-day-2022](https://github.com/luraess/julia-day-2022)
+We'll solve the heat diffusion equation
+
+$$ c \frac{∂T}{∂t} = ∇⋅λ ∇T $$
+
+using explicit 2D finite-differences on a Cartesian staggered grid
+"""
+
+#nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
+md"""
+👉 This notebook is available on GitHub at [https://github.com/luraess/julia-day-2022](https://github.com/luraess/julia-day-2022)
+"""
+
+#src #########################################################################
+#nb # %% A slide [markdown] {"slideshow": {"slide_type": "slide"}}
+md"""
+## Heat solver implementations and performance evaluation
+
+1. Array programming and broadcasting (vectorised Julia CPU)
+2. Array programming and broadcasting (vectorised Julia GPU)
+3. Kernel programming using ParallelStencil and math-close notation
+4. Advanced kernel programming using ParallelStencil
 """
 
 #src #########################################################################
@@ -364,7 +317,7 @@ md"""
 md"""
 ## Setting up the environment
 
-In the notebook, activate the environment:
+Before we start, let's activate the environment:
 """
 using Pkg
 Pkg.activate(@__DIR__)
@@ -377,11 +330,11 @@ And add the package(s) we will use
 using Plots, CUDA, BenchmarkTools
 
 md"""
-## Solving the 2D heat diffusion
+### 1. Array programming on CPU
 
 $$ c \frac{∂T}{∂t} = ∇⋅λ ∇T $$
 
-Let's implement an explicit diffusion solver using finite-differences and array programming together with broadcasting in "plain" Julia:
+A 24 lines code including visualisation:
 """
 function diffusion2D()
     ## Physics
@@ -414,12 +367,16 @@ end
 diffusion2D()
 
 md"""
-The above example runs on CPU. What if we want to execute it on the GPU? In Julia, this is pretty simple as we can use the [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) package 
+The above example runs on the CPU. What if we want to execute it on the GPU?
+
+### 2. Array programming on GPU
+
+In Julia, this is pretty simple as we can use the [CUDA.jl](https://github.com/JuliaGPU/CUDA.jl) package 
 """
 using CUDA
 
 md"""
-and add the `CUDA` key to the array initialisation as following:
+and add initialise our arrays as `CuArray`s:
 """
 function diffusion2D()
     ## Physics
@@ -452,11 +409,11 @@ end
 diffusion2D()
 
 md"""
-Nice, so it runs on the GPU now. But how much faster - what did we gain?
+Nice, so it runs on the GPU now. But how much faster - what did we gain? Let's determine the effective memory throughput $T_\mathrm{eff}$ for both implementations.
 
-### CPU array programming performance
+### CPU vs GPU array programming performance
 
-Let's determine the effective memory throughput $T_\mathrm{eff}$. For this, we can isolate the physics computation into a function that we will use for benchmarking
+For this, we can isolate the physics computation into a function that we will evaluate for benchmarking
 """
 function update_temperature!(T, qTx, qTy, Ci, λ, dt, dx, dy)
     @inbounds qTx .= .-λ .* diff(T[:,2:end-1],dims=1)./dx
@@ -483,8 +440,6 @@ T_eff_cpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
 println("T_eff = $(T_eff_cpu_bcast) GiB/s")
 
 md"""
-### GPU array programming performance
-
 Let's repeat the experiment using the GPU
 """
 nx = ny = 512#*32
@@ -495,7 +450,7 @@ qTy = CUDA.rand(Float64,nx-2,ny-1)
 λ = dx = dy = dt = rand();
 
 md"""
-And sample again our perf on the GPU this time:
+And sample again our performance from the GPU execution this time:
 """
 t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_gpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
