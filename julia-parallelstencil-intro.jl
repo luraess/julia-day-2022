@@ -467,10 +467,10 @@ In this first example, we'll use the `FiniteDifferences` module to enable math-c
 """
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-## @init_parallel_stencil(Threads, Float64, 2)
-@init_parallel_stencil(CUDA, Float64, 2)
-CUDA.device!(7) # select specific GPU
-nx = ny = 512*32
+@init_parallel_stencil(Threads, Float64, 2)
+## @init_parallel_stencil(CUDA, Float64, 2)
+## CUDA.device!(7) # select specific GPU
+nx = ny = 512#*32
 T   = @rand(nx  ,ny  )
 Ci  = @rand(nx  ,ny  )
 qTx = @rand(nx-1,ny-2)
@@ -515,7 +515,7 @@ macro qTy(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
 end
 
 md"""
-> Note that we need a buffer array now in order to avoid race conditions and erroneous results when accessing the `T` array in parallel.
+> 💡 note: We need a buffer array now in order to avoid race conditions and erroneous results when accessing the `T` array in parallel.
 
 We can now sample again our performance on the GPU using `parallel_indices` this time:
 """
@@ -523,6 +523,29 @@ t_it = @belapsed begin @parallel update_temperature_psind!($T2, $T, $Ci, $λ, $d
 T_eff_psind = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
 println("T_eff = $(T_eff_psind) GiB/s using ParallelStencil on GPU and @parallel_indices")
 
+md"""
+So, we made it. Time to recap what we've seen.
 
+## Conclusions
 
+- Starting with performance, we can now clearly see our 4 data points of $T_\mathrm{eff}$ and how close the GPU perf is from the peak memory bandwidth
+"""
+xPU  = ("CPU AP", "GPU AP", "GPU PS FD", "GPU PS perf")
+Teff = (T_eff_cpu_bcast, T_eff_gpu_bcast, T_eff_ps, T_eff_psind)
+plot(Teff,ylabel="T_eff",xlabel="implementation",xticks=(1:length(xPU),xPU),xaxis=([0.7, 4.3]),linewidth=0,markershape=:square,markersize=8,legend=false,fontfamily="Courier",framestyle=:box)
 
+md"""
+- Julia and ParallelStencil permit to solve the two-language problem
+- ParallelStencil and Julia GPU permit to exploit close to GPUs' peak memory throughput
+
+![parallelstencil](./figures/parallelstencil.png)
+
+More hungry? Check out [https://github.com/omlins/ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl) and the [miniapps](https://github.com/omlins/ParallelStencil.jl#concise-singlemulti-xpu-miniapps)
+
+Advance features not covered today:
+- Using shared-memory and 2.5D blocking (see [here](https://github.com/omlins/ParallelStencil.jl#support-for-architecture-agnostic-low-level-kernel-programming) with [example](https://github.com/omlins/ParallelStencil.jl/blob/main/examples/diffusion2D_shmem_novis.jl))
+- Multi-GPU with communication-computation overlap combining ParallelStencil and [ImplicitGlobalGrid]()
+- Stay tuned, AMDGPU support is coming soon 🚀
+
+_contact: luraess@ethz.ch_
+"""
