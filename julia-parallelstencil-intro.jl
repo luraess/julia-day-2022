@@ -308,8 +308,8 @@ md"""
 
 1. Array programming and broadcasting (vectorised Julia CPU)
 2. Array programming and broadcasting (vectorised Julia GPU)
-3. Kernel programming using ParallelStencil and math-close notation
-4. Advanced kernel programming using ParallelStencil
+3. Kernel programming using ParallelStencil with math-close notation (`FiniteDifferences` module)
+4. Advanced kernel programming using ParallelStencil (`@parallel_indices` features)
 """
 
 #src #########################################################################
@@ -437,7 +437,7 @@ And use `@belapsed` macro from [BenchmarTools](https://github.com/JuliaCI/Benchm
 """
 t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_cpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
-println("T_eff = $(T_eff_cpu_bcast) GiB/s")
+println("T_eff = $(T_eff_cpu_bcast) GiB/s using CPU array programming")
 
 md"""
 Let's repeat the experiment using the GPU
@@ -454,20 +454,23 @@ And sample again our performance from the GPU execution this time:
 """
 t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_gpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
-println("T_eff = $(T_eff_gpu_bcast) GiB/s")
+println("T_eff = $(T_eff_gpu_bcast) GiB/s using GPU array programming")
 
 md"""
-Some blabla about perf.
+We see some improvement from performing the computations on the GPU, however, $T_\mathrm{eff}$ is not yet close to GPU's peak memory bandwidth
 
-## Using ParallelStencil
+How to improve? Now it's time for ParallelStencil
 
-Finite difference module and `CUDA` "backend".
+### 3. Kernel programming using ParallelStencil
+
+In this first example, we'll use the `FiniteDifferences` module to enable math-close notation and the `CUDA` "backend". We could simply switch the backend to `Threads` if we want the same code to run on multiple CPU threads using Julia's native multi-threading capabilities. But for time issues, we won't investigate this today.
 """
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-@init_parallel_stencil(Threads, Float64, 2)
-## @init_parallel_stencil(CUDA, Float64, 2)
-nx = ny = 512#*32
+## @init_parallel_stencil(Threads, Float64, 2)
+@init_parallel_stencil(CUDA, Float64, 2)
+CUDA.device!(7) # select specific GPU
+nx = ny = 512*32
 T   = @rand(nx  ,ny  )
 Ci  = @rand(nx  ,ny  )
 qTx = @rand(nx-1,ny-2)
@@ -475,7 +478,7 @@ qTy = @rand(nx-2,ny-1)
 λ = dx = dy = dt = rand();
 
 md"""
-Using math-close notations from the FD module:
+Using math-close notations from the `FiniteDifferences2D` module, our update kernel can be re-written as following:
 """
 @parallel function update_temperature_ps!(T, qTx, qTy, Ci, λ, dt, dx, dy)
     @all(qTx) = -λ * @d_xi(T)/dx
@@ -485,15 +488,20 @@ Using math-close notations from the FD module:
 end
 
 md"""
-And sample again our perf on the GPU using ParallelStencil this time:
+And sample again our performance on the GPU using ParallelStencil this time:
 """
 t_it = @belapsed begin @parallel update_temperature_ps!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_ps = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
-println("T_eff = $(T_eff_ps) GiB/s")
+println("T_eff = $(T_eff_ps) GiB/s using ParallelStencil on GPU and the FiniteDifferences2D module")
 
 md"""
-It's better, but we can do more in order to approach the peak memory bandwidth of the GPU
-Removing the convenience arrays `qTx`, `qTy`:
+It's already much better, but we can do more in order to approach the peak memory bandwidth of the GPU.
+
+### 4. Advanced kernel programming using ParallelStencil (`@parallel_indices` features)
+
+We should remove the convenience arrays `qTx`, `qTy` (no time dependence).
+We then also need to switch from the `@parallel` to `@parallel_indices (ix,iy)` function declaration.
+We can, e.g., use macros to still have our fluxes explicitly written down, resulting in:
 """
 T2 = copy(T)
 macro qTx(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix,$iy+1])/dx )) end
@@ -507,11 +515,13 @@ macro qTy(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
 end
 
 md"""
-And sample again our perf on the GPU using `parallel_indices` this time:
+> Note that we need a buffer array now in order to avoid race conditions and erroneous results when accessing the `T` array in parallel.
+
+We can now sample again our performance on the GPU using `parallel_indices` this time:
 """
 t_it = @belapsed begin @parallel update_temperature_psind!($T2, $T, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_psind = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
-println("T_eff = $(T_eff_psind) GiB/s")
+println("T_eff = $(T_eff_psind) GiB/s using ParallelStencil on GPU and @parallel_indices")
 
 
 
