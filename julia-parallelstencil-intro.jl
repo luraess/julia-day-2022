@@ -442,7 +442,7 @@ println("T_eff = $(T_eff_cpu_bcast) GiB/s using CPU array programming")
 md"""
 Let's repeat the experiment using the GPU
 """
-nx = ny = 512#*32
+nx = ny = 512*32
 T   = CUDA.rand(Float64,nx  ,ny  )
 Ci  = CUDA.rand(Float64,nx  ,ny  )
 qTx = CUDA.rand(Float64,nx-1,ny-2)
@@ -467,10 +467,10 @@ In this first example, we'll use the `FiniteDifferences` module to enable math-c
 """
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-@init_parallel_stencil(Threads, Float64, 2)
-## @init_parallel_stencil(CUDA, Float64, 2)
-## CUDA.device!(7) # select specific GPU
-nx = ny = 512#*32
+## @init_parallel_stencil(Threads, Float64, 2)
+@init_parallel_stencil(CUDA, Float64, 2)
+CUDA.device!(7) # select specific GPU
+nx = ny = 512*32
 T   = @rand(nx  ,ny  )
 Ci  = @rand(nx  ,ny  )
 qTx = @rand(nx-1,ny-2)
