@@ -14,9 +14,9 @@ _ETH Zurich_
 #nb # %% A slide [markdown] {"slideshow": {"slide_type": "fragment"}}
 md"""
 
-_dev team_
+_with - Sam Omlin, Ivan Utkin, Mauro Werder_
 
-_Sam Omlin, Ivan Utkin, Mauro Werder_
+![gpu](./figures/logo2.png)
 """
 
 #src #########################################################################
