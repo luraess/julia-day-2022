@@ -436,7 +436,7 @@ qTy = rand(Float64,nx-2,ny-1)
 λ = dx = dy = dt = rand();
 
 md"""
-And use `@belapsed` macro from [BenchmarTools](https://github.com/JuliaCI/BenchmarkTools.jl) to sample our perf:
+And use `@belapsed` macro from [BenchmarkTools](https://github.com/JuliaCI/BenchmarkTools.jl) to sample our perf:
 """
 t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_cpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
