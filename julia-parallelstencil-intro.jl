@@ -310,6 +310,8 @@ md"""
 2. Array programming and broadcasting (vectorised Julia GPU)
 3. Kernel programming using ParallelStencil with math-close notation (`FiniteDifferences` module)
 4. Advanced kernel programming using ParallelStencil (`@parallel_indices` features)
+
+**Goal:** get as close as possible to GPU's peak performance, 1355 GiB/s for the Nvidia Tesla A100 we will run on.
 """
 
 #src #########################################################################
@@ -453,7 +455,7 @@ qTy = CUDA.rand(Float64,nx-2,ny-1)
 md"""
 And sample again our performance from the GPU execution this time:
 """
-t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); end
+t_it = @belapsed begin update_temperature!($T, $qTx, $qTy, $Ci, $λ, $dt, $dx, $dy); synchronize(); end
 T_eff_gpu_bcast = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
 println("T_eff = $(T_eff_gpu_bcast) GiB/s using GPU array programming")
 
@@ -469,13 +471,13 @@ In this first example, we'll use the `FiniteDifferences` module to enable math-c
 USE_GPU=true
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-static if USE_GPU
+@static if USE_GPU
     @init_parallel_stencil(CUDA, Float64, 2)
     CUDA.device!(7) # select specific GPU
 else
     @init_parallel_stencil(Threads, Float64, 2)
 end
-nx = ny = 512*32
+nx = ny = 512*64
 T   = @rand(nx  ,ny  )
 Ci  = @rand(nx  ,ny  )
 qTx = @rand(nx-1,ny-2)
@@ -500,12 +502,33 @@ T_eff_ps = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
 println("T_eff = $(T_eff_ps) GiB/s using ParallelStencil on GPU and the FiniteDifferences2D module")
 
 md"""
-It's already much better, but we can do more in order to approach the peak memory bandwidth of the GPU.
+It's already much better, but we can do more in order to approach the peak memory bandwidth of the GPU - 1355 GiB/s for the Nvidia Tesla A100.
+
+We should now remove the convenience arrays `qTx`, `qTy` (no time dependence), as these intermediate storage add pressure on the memory bandwidth which slows down the calculations since we are memory-bound.
+We can rewrite it as following assuming that λ is constant (a scalar here).
+"""
+@parallel function update_temperature_ps2!(T2, T, Ci, λ, dt, dx, dy)
+    @inn(T2) = @inn(T) + dt*λ*@inn(Ci)*(@d2_xi(T)/dx/dx + @d2_yi(T)/dy/dy)
+    return
+end
+
+md"""
+We can sample again our performance on the GPU:
+"""
+T2 = qTx
+t_it = @belapsed begin @parallel update_temperature_ps2!($T2, $T, $Ci, $λ, $dt, $dx, $dy); end
+T_eff_ps2 = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
+println("T_eff = $(T_eff_ps2) GiB/s using ParallelStencil on GPU without convenience arrays")
+
+md"""
+So that's cool. We are getting close to hardware limit 🚀
+
+> 💡 note: We need a buffer array now in order to avoid race conditions and erroneous results when accessing the `T` array in parallel.
 
 ### 4. Advanced kernel programming using ParallelStencil (`@parallel_indices` features)
 
-We should remove the convenience arrays `qTx`, `qTy` (no time dependence).
-We then also need to switch from the `@parallel` to `@parallel_indices (ix,iy)` function declaration.
+Can we do even better? What if we need more custom kernels?
+We can switch from the `@parallel` to `@parallel_indices (ix,iy)` function declaration.
 We can, e.g., use macros to still have our fluxes explicitly written down, resulting in:
 """
 T2 = copy(T)
@@ -520,8 +543,6 @@ macro qTy(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
 end
 
 md"""
-> 💡 note: We need a buffer array now in order to avoid race conditions and erroneous results when accessing the `T` array in parallel.
-
 We can now sample again our performance on the GPU using `parallel_indices` this time:
 """
 t_it = @belapsed begin @parallel update_temperature_psind!($T2, $T, $Ci, $λ, $dt, $dx, $dy); end
@@ -533,11 +554,12 @@ So, we made it. Time to recap what we've seen.
 
 ## Conclusions
 
-- Starting with performance, we can now clearly see our 4 data points of $T_\mathrm{eff}$ and how close the GPU perf is from the peak memory bandwidth
+- Starting with performance, we can now clearly see our 4 data points of $T_\mathrm{eff}$ and how close the GPU performance is from the peak memory bandwidth of the GPU
 """
-xPU  = ("CPU AP", "GPU AP", "GPU PS FD", "GPU PS perf")
-Teff = (T_eff_cpu_bcast, T_eff_gpu_bcast, T_eff_ps, T_eff_psind)
-plot(Teff,ylabel="T_eff",xlabel="implementation",xticks=(1:length(xPU),xPU),xaxis=([0.7, 4.3]),linewidth=0,markershape=:square,markersize=8,legend=false,fontfamily="Courier",framestyle=:box)
+xPU  = ("CPU-AP", "GPU-AP", "GPU-PS", "GPU-PS2", "GPU-PS-perf")
+Teff = [T_eff_cpu_bcast, T_eff_gpu_bcast, T_eff_ps, T_eff_ps2, T_eff_psind]
+plot(Teff,ylabel="T_eff [GiB/s]",xlabel="implementation",xticks=(1:length(xPU),xPU),xaxis=([0.7, 5.3]),linewidth=0,markershape=:square,markersize=8,legend=false,fontfamily="Courier",framestyle=:box)
+plot!([0.7,5.3],[1355,1355],linewidth=3)
 
 md"""
 - Julia and ParallelStencil permit to solve the two-language problem
