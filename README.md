@@ -33,14 +33,14 @@ _To view the notebook as slide, you need to install the [RISE](https://rise.read
 
 ## Resources
 
-Packages
+#### Packages
 - [ParallelStencil.jl](https://github.com/omlins/ParallelStencil.jl)
 - [ImplicitGlobalGrid.jl](https://github.com/eth-cscs/ImplicitGlobalGrid.jl)
 
-Courses and resources
+#### Courses and resources
 - ETHZ course on solving PDEs with GPUs: https://pde-on-gpu.vaw.ethz.ch
 - Advanced GPU HPC optimisation course at CSCS: https://github.com/omlins/julia-gpu-course and https://github.com/maleadt/cscs_gpu_course/
 - More [here](https://pde-on-gpu.vaw.ethz.ch/extras/#extra_material)
 
-Misc
+#### Misc
 - Frontier GPU multi-physics solvers: https://ptsolvers.github.io/GPU4GEO/
