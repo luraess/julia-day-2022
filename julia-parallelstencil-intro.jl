@@ -531,7 +531,6 @@ Can we do even better? What if we need more custom kernels?
 We can switch from the `@parallel` to `@parallel_indices (ix,iy)` function declaration.
 We can, e.g., use macros to still have our fluxes explicitly written down, resulting in:
 """
-T2 = copy(T)
 macro qTx(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix,$iy+1])/dx )) end
 macro qTy(ix,iy)  esc(:( -λ*(T[$ix+1,$iy+1] - T[$ix+1,$iy])/dy )) end
 @parallel_indices (ix,iy) function update_temperature_psind!(T2, T, Ci, λ, dt, dx, dy)
@@ -548,9 +547,10 @@ We can now sample again our performance on the GPU using `parallel_indices` this
 t_it = @belapsed begin @parallel update_temperature_psind!($T2, $T, $Ci, $λ, $dt, $dx, $dy); end
 T_eff_psind = (2*1+1)*1/1e9*nx*ny*sizeof(Float64)/t_it
 println("T_eff = $(T_eff_psind) GiB/s using ParallelStencil on GPU and @parallel_indices")
-
+println("So, we made it. Our 2D diffusion kernel runs on the GPU at $(T_eff_psind/1355) % of memory copy!")
 md"""
-So, we made it. Time to recap what we've seen.
+
+Time to recap what we've seen.
 
 ## Conclusions
 
