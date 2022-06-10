@@ -321,6 +321,7 @@ Before we start, let's activate the environment:
 """
 using Pkg
 Pkg.activate(@__DIR__)
+Pkg.resolve()
 Pkg.instantiate()
 Pkg.status()
 
@@ -425,7 +426,7 @@ end
 md"""
 Moreover, for benchmarking activities, we will require the following arrays and scalars and make sure to use sufficiently large arrays in order to saturate the memory bandwidth:
 """
-nx = ny = 512#*32
+nx = ny = 512*32
 T   = rand(Float64,nx  ,ny  )
 Ci  = rand(Float64,nx  ,ny  )
 qTx = rand(Float64,nx-1,ny-2)
@@ -465,11 +466,15 @@ How to improve? Now it's time for ParallelStencil
 
 In this first example, we'll use the `FiniteDifferences` module to enable math-close notation and the `CUDA` "backend". We could simply switch the backend to `Threads` if we want the same code to run on multiple CPU threads using Julia's native multi-threading capabilities. But for time issues, we won't investigate this today.
 """
+USE_GPU=true
 using ParallelStencil
 using ParallelStencil.FiniteDifferences2D
-## @init_parallel_stencil(Threads, Float64, 2)
-@init_parallel_stencil(CUDA, Float64, 2)
-CUDA.device!(7) # select specific GPU
+static if USE_GPU
+    @init_parallel_stencil(CUDA, Float64, 2)
+    CUDA.device!(7) # select specific GPU
+else
+    @init_parallel_stencil(Threads, Float64, 2)
+end
 nx = ny = 512*32
 T   = @rand(nx  ,ny  )
 Ci  = @rand(nx  ,ny  )
